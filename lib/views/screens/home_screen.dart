@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../controllers/plant_controller.dart';
+import '../../models/plant_state.dart';
 import '../widgets/moisture_card.dart';
 import '../widgets/pump_control_card.dart';
 import '../widgets/status_card.dart';
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -17,7 +18,7 @@ class HomeScreen extends StatelessWidget {
       ),
       body: Consumer<PlantController>(
         builder: (context, controller, child) {
-          final state = controller.state;
+          final PlantState state = controller.state;
 
           return Padding(
             padding: const EdgeInsets.all(16.0),

@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
-import '../../models/plant_state.dart';
+import '../../models/plant_state.dart' as plant_state;
 
 class PumpControlCard extends StatelessWidget {
-  final PlantState state;
+  final plant_state.PlantState state;
   final Function(bool) onPumpToggle;
 
   const PumpControlCard({
-    Key? key,
+    super.key,
     required this.state,
     required this.onPumpToggle,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

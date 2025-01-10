@@ -11,9 +11,9 @@ const char* ssid = "mautauajaniorang";
 const char* password = "Garuda Skip";
 
 // MQTT Broker settings
-const char* mqtt_server = "test.mosquitto.org";  // Broker MQTT publik yang lebih stabil
+const char* mqtt_server = "test.mosquitto.org";
 const int mqtt_port = 1883;
-const char* mqtt_client_id = "esp32_plant_123";  // ID unik untuk client
+const char* mqtt_client_id = "esp32_plant_123";
 const char* mqtt_topic_moisture = "plant/moisture";
 const char* mqtt_topic_pump = "plant/pump";
 
@@ -50,49 +50,75 @@ void setup_wifi() {
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
-  String message;
-  for (int i = 0; i < length; i++) {
-    message += (char)payload[i];
-  }
+  // Membuat string dari payload
+  char message[50];
+  memcpy(message, payload, length);
+  message[length] = '\0';
   
-  Serial.print("Message received on topic: ");
+  Serial.print("Message arrived on topic: ");
   Serial.println(topic);
   Serial.print("Message: ");
   Serial.println(message);
   
-  if (String(topic) == mqtt_topic_pump) {
-    if (message == "ON") {
-      digitalWrite(RELAY_PIN, LOW);
+  // Periksa topic pompa
+  if (strcmp(topic, mqtt_topic_pump) == 0) {
+    if (strcmp(message, "ON") == 0) {
+      Serial.println("Attempting to turn pump ON");
+      Serial.print("Relay pin state before: ");
+      Serial.println(digitalRead(RELAY_PIN));
+      
+      digitalWrite(RELAY_PIN, LOW);  // Nyalakan pompa
+      delay(100);  // Tunggu sebentar
+      
+      Serial.print("Relay pin state after: ");
+      Serial.println(digitalRead(RELAY_PIN));
+      
       lcd.setCursor(0, 1);
       lcd.print("Pump: ON ");
       Serial.println("Pump turned ON");
-    } else {
-      digitalWrite(RELAY_PIN, HIGH);
+      
+      // Kirim konfirmasi status pompa
+      client.publish(mqtt_topic_pump, "ON", true);
+    } 
+    else if (strcmp(message, "OFF") == 0) {
+      Serial.println("Attempting to turn pump OFF");
+      Serial.print("Relay pin state before: ");
+      Serial.println(digitalRead(RELAY_PIN));
+      
+      digitalWrite(RELAY_PIN, HIGH); // Matikan pompa
+      delay(100);  // Tunggu sebentar
+      
+      Serial.print("Relay pin state after: ");
+      Serial.println(digitalRead(RELAY_PIN));
+      
       lcd.setCursor(0, 1);
       lcd.print("Pump: OFF");
       Serial.println("Pump turned OFF");
+      
+      // Kirim konfirmasi status pompa
+      client.publish(mqtt_topic_pump, "OFF", true);
     }
   }
 }
 
 void reconnect() {
-  while (!client.connected()) {
-    Serial.print("Connecting to MQTT...");
+  int retries = 0;
+  while (!client.connected() && retries < 5) {
+    Serial.print("Attempting MQTT connection...");
     if (client.connect(mqtt_client_id)) {
       Serial.println("connected");
+      
+      // Subscribe ke topic pump
       client.subscribe(mqtt_topic_pump);
       Serial.println("Subscribed to pump control topic");
+      
+      // Publish status awal pompa
+      client.publish(mqtt_topic_pump, "OFF", true);
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
       Serial.println(" retrying in 5 seconds");
-      // Tambahan debug info
-      switch(client.state()) {
-        case -4: Serial.println("Connection timeout"); break;
-        case -3: Serial.println("Connection lost"); break;
-        case -2: Serial.println("Connection failed"); break;
-        case -1: Serial.println("Connection disconnected"); break;
-      }
+      retries++;
       delay(5000);
     }
   }
@@ -105,14 +131,19 @@ void setup() {
   lcd.init();
   lcd.backlight();
   
-  // Initialize pins
+  // Initialize pins dengan debug
+  Serial.println("Initializing relay pin...");
   pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, HIGH);  // Turn off pump initially
+  digitalWrite(RELAY_PIN, HIGH);  // Matikan pompa saat startup
+  Serial.print("Initial relay pin state: ");
+  Serial.println(digitalRead(RELAY_PIN));
+  
   pinMode(SOIL_SENSOR, INPUT);
   
-  // Setup WiFi and MQTT
+  // Setup WiFi
   setup_wifi();
   
+  // Setup MQTT
   client.setServer(mqtt_server, mqtt_port);
   client.setCallback(callback);
   
@@ -129,7 +160,8 @@ void readAndPublishMoisture() {
   char moistureStr[8];
   dtostrf(value, 1, 2, moistureStr);
   
-  client.publish(mqtt_topic_moisture, moistureStr);
+  // Publish moisture value dengan retained flag
+  client.publish(mqtt_topic_moisture, moistureStr, true);
   Serial.print("Published moisture value: ");
   Serial.println(moistureStr);
   
