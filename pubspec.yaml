@@ -1,0 +1,24 @@
+name: smart_watering_plant
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  mqtt_client: ^10.0.0  # For MQTT communication
+  fl_chart: ^0.65.0  # For data visualization
+  shared_preferences: ^2.2.2  # For local storage
+  intl: ^0.17.0  # For date formatting
+  provider: ^6.1.1  # For state management
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
