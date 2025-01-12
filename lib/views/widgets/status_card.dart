@@ -7,10 +7,10 @@ class StatusCard extends StatelessWidget {
   final PlantController controller;
 
   const StatusCard({
-    Key? key,
+    super.key,
     required this.state,
     required this.controller,
-  }) : super(key: key);
+  });
 
   String _formatDateTime(DateTime dateTime) {
     return '${dateTime.hour}:${dateTime.minute}:${dateTime.second}';

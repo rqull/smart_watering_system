@@ -1,24 +1,24 @@
-name: smart_watering_plant
-description: "A new Flutter project."
-publish_to: 'none'
-version: 0.1.0
+name: smart_watering
+description: Smart Watering System with ESP32 and Flutter
+publish_to: "none"
+version: 1.0.0+1
 
 environment:
-  sdk: ^3.6.0
+  sdk: ">=3.1.5 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  mqtt_client: ^10.0.0  # For MQTT communication
-  fl_chart: ^0.65.0  # For data visualization
-  shared_preferences: ^2.2.2  # For local storage
-  intl: ^0.17.0  # For date formatting
-  provider: ^6.1.1  # For state management
+  cupertino_icons: ^1.0.2
+  mqtt_client: ^10.0.0
+  provider: ^6.1.1
+  fluttertoast: ^8.2.4
+  shared_preferences: ^2.2.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^2.0.0
 
 flutter:
   uses-material-design: true

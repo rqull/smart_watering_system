@@ -1,36 +1,60 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:fluttertoast/fluttertoast.dart';
 import '../models/plant_state.dart';
 import '../services/mqtt_service.dart';
 
 class PlantController extends ChangeNotifier {
-  final MQTTService _mqttService;
-  PlantState _state = PlantState.initial();
+  final MQTTService mqttService;
+  PlantState _state =
+      PlantState(moisture: 0.0, isPumpOn: false, timestamp: DateTime.now());
 
-  PlantController(this._mqttService) {
-    _initialize();
+  PlantController({required this.mqttService}) {
+    mqttService.currentData.addListener(_updateState);
+    mqttService.statusMessage.addListener(_handleStatusMessage);
   }
 
   PlantState get state => _state;
 
-  Future<void> _initialize() async {
-    await _mqttService.initialize();
-    _mqttService.currentData.addListener(_updateState);
-  }
-
   void _updateState() {
-    final data = _mqttService.currentData.value;
-    if (data != null) {
-      _state = PlantState(
-        moisture: data.moisture,
-        timestamp: data.timestamp,
-        isPumpOn: data.isPumpOn,
-      );
+    final newData = mqttService.currentData.value;
+    if (newData != null) {
+      _state = newData;
       notifyListeners();
     }
   }
 
-  void togglePump(bool value) {
-    _mqttService.togglePump(value);
+  void _handleStatusMessage() {
+    final message = mqttService.statusMessage.value;
+    if (message != null && message.isNotEmpty) {
+      // Tampilkan toast untuk pesan status tertentu
+      if (message.contains("Moisture too high")) {
+        _showToast(
+            "Tidak dapat menyalakan pompa: Kelembaban tanah terlalu tinggi!");
+      } else if (message.contains("Low moisture")) {
+        _showToast("Peringatan: Kelembaban tanah rendah!");
+      } else if (message.contains("Max time reached")) {
+        _showToast("Pompa dimatikan: Batas waktu tercapai");
+      }
+    }
+  }
+
+  void _showToast(String message) {
+    Fluttertoast.showToast(
+        msg: message,
+        toastLength: Toast.LENGTH_LONG,
+        gravity: ToastGravity.BOTTOM,
+        backgroundColor: Colors.black87,
+        textColor: Colors.white,
+        fontSize: 16.0);
+  }
+
+  Future<void> togglePump(bool turnOn) async {
+    if (turnOn && _state.moisture >= 80) {
+      _showToast(
+          "Tidak dapat menyalakan pompa: Kelembaban tanah sudah di atas 80%!");
+      return;
+    }
+    await mqttService.togglePump(turnOn);
   }
 
   String getMoistureStatus() {
@@ -45,8 +69,9 @@ class PlantController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _mqttService.currentData.removeListener(_updateState);
-    _mqttService.dispose();
+    mqttService.currentData.removeListener(_updateState);
+    mqttService.statusMessage.removeListener(_handleStatusMessage);
+    mqttService.dispose();
     super.dispose();
   }
 }

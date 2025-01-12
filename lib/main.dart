@@ -1,31 +1,54 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'controllers/plant_controller.dart';
+import 'controllers/theme_controller.dart';
 import 'services/mqtt_service.dart';
 import 'views/screens/home_screen.dart';
 
-void main() {
-  runApp(const MyApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+
+  runApp(MyApp(prefs: prefs));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final SharedPreferences prefs;
+
+  const MyApp({super.key, required this.prefs});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Smart Plant Watering',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
-        useMaterial3: true,
-      ),
-      home: ChangeNotifierProvider(
-        create: (_) {
-          final mqttService = MQTTService();
-          mqttService.initialize();
-          return PlantController(mqttService);
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => ThemeController(prefs: prefs),
+        ),
+        Provider<MQTTService>(
+          create: (_) {
+            final mqttService = MQTTService();
+            mqttService.initialize();
+            return mqttService;
+          },
+          dispose: (_, service) => service.dispose(),
+        ),
+        ChangeNotifierProvider<PlantController>(
+          create: (context) => PlantController(
+            mqttService: context.read<MQTTService>(),
+          ),
+        ),
+      ],
+      child: Consumer<ThemeController>(
+        builder: (context, themeController, child) {
+          return MaterialApp(
+            showSemanticsDebugger: false,
+            debugShowCheckedModeBanner: false,
+            title: 'Smart Watering',
+            theme: themeController.currentTheme,
+            home: const HomeScreen(),
+          );
         },
-        child: const HomePage(),
       ),
     );
   }

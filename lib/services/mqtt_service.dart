@@ -1,7 +1,6 @@
-import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
-import 'package:flutter/foundation.dart';
 import '../models/plant_state.dart';
 
 class MQTTService {
@@ -12,36 +11,96 @@ class MQTTService {
   late MqttServerClient client;
   final ValueNotifier<PlantState?> currentData =
       ValueNotifier<PlantState?>(null);
+  final ValueNotifier<String?> statusMessage = ValueNotifier<String?>(null);
+  final ValueNotifier<bool> deviceOnline = ValueNotifier<bool>(false);
   bool _isConnected = false;
 
+  // Timer untuk mengecek last seen
+  DateTime? _lastMessageTime;
+  static const Duration offlineThreshold = Duration(seconds: 30);
+
   Future<void> initialize() async {
+    print('Initializing MQTT Service...');
     client = MqttServerClient(broker, clientIdentifier);
     client.port = port;
-    client.logging(on: true);
     client.keepAlivePeriod = 60;
     client.onDisconnected = _onDisconnected;
     client.onConnected = _onConnected;
     client.onSubscribed = _onSubscribed;
+    client.logging(on: true);
+
+    final connMessage = MqttConnectMessage()
+        .withClientIdentifier(clientIdentifier)
+        .withWillTopic('plant/status')
+        .withWillMessage('Flutter Client Offline')
+        .withWillQos(MqttQos.atLeastOnce)
+        .withWillRetain()
+        .startClean();
+    client.connectionMessage = connMessage;
 
     try {
+      print('Connecting to MQTT broker: $broker');
       await client.connect();
-      _isConnected = true;
-      print('MQTT Connected');
     } catch (e) {
       print('Exception: $e');
-      _isConnected = false;
+      statusMessage.value = 'Connection failed: $e';
+      deviceOnline.value = false;
       client.disconnect();
     }
 
-    if (_isConnected) {
-      print('Subscribing to topics...');
-      _subscribeToTopics();
+    if (client.connectionStatus!.state == MqttConnectionState.connected) {
+      print('Connected to MQTT broker');
+      _isConnected = true;
+      _setupSubscriptions();
       _setupUpdatesListener();
+
+      // Publish online status
+      client.publishMessage(
+          'plant/status',
+          MqttQos.atLeastOnce,
+          MqttClientPayloadBuilder()
+              .addString('Flutter Client Online')
+              .payload!,
+          retain: true);
+
+      // Start periodic check for device online status
+      _startDeviceStatusCheck();
+    } else {
+      print('Connection failed - status is ${client.connectionStatus}');
+      statusMessage.value = 'Connection failed: ${client.connectionStatus}';
+      deviceOnline.value = false;
+      _isConnected = false;
     }
+  }
+
+  void _startDeviceStatusCheck() {
+    Future.delayed(const Duration(seconds: 5), () {
+      if (_lastMessageTime != null) {
+        final now = DateTime.now();
+        final difference = now.difference(_lastMessageTime!);
+        if (difference > offlineThreshold) {
+          deviceOnline.value = false;
+          statusMessage.value = 'Device Offline';
+        }
+      }
+      if (_isConnected) {
+        _startDeviceStatusCheck();
+      }
+    });
+  }
+
+  void _setupSubscriptions() {
+    print('Setting up MQTT subscriptions');
+    client.subscribe('plant/moisture', MqttQos.atLeastOnce);
+    client.subscribe('plant/pump', MqttQos.atLeastOnce);
+    client.subscribe('plant/status', MqttQos.atLeastOnce);
   }
 
   void _setupUpdatesListener() {
     client.updates?.listen((List<MqttReceivedMessage<MqttMessage>> messages) {
+      _lastMessageTime = DateTime.now();
+      deviceOnline.value = true;
+
       final MqttPublishMessage message =
           messages[0].payload as MqttPublishMessage;
       final String topic = messages[0].topic;
@@ -53,67 +112,39 @@ class MQTTService {
       if (topic == 'plant/moisture') {
         try {
           final double moisture = double.parse(payload);
+          print('Updating moisture value: $moisture');
           currentData.value = PlantState(
             moisture: moisture,
-            timestamp: DateTime.now(),
             isPumpOn: currentData.value?.isPumpOn ?? false,
+            timestamp: DateTime.now(),
           );
         } catch (e) {
           print('Error parsing moisture value: $e');
+          statusMessage.value = 'Error reading moisture: $e';
         }
       } else if (topic == 'plant/pump') {
-        final bool isPumpOn = payload == 'ON';
-        if (currentData.value != null) {
-          currentData.value = PlantState(
-            moisture: currentData.value!.moisture,
-            timestamp: DateTime.now(),
-            isPumpOn: isPumpOn,
-          );
+        print('Updating pump status: $payload');
+        currentData.value = PlantState(
+          moisture: currentData.value?.moisture ?? 0.0,
+          isPumpOn: payload == 'ON',
+          timestamp: DateTime.now(),
+        );
+      } else if (topic == 'plant/status') {
+        print('Received status update: $payload');
+        statusMessage.value = payload;
+        if (payload.contains('Device Online')) {
+          deviceOnline.value = true;
+        } else if (payload.contains('Device Offline')) {
+          deviceOnline.value = false;
         }
       }
     });
   }
 
-  void _subscribeToTopics() {
-    client.subscribe('plant/moisture', MqttQos.atLeastOnce);
-    client.subscribe('plant/pump', MqttQos.atLeastOnce);
-    print('Subscribed to topics');
-  }
-
-  void _onDisconnected() {
-    print('MQTT Disconnected');
-    _isConnected = false;
-    _reconnect();
-  }
-
-  void _onConnected() {
-    print('MQTT Connected');
-    _isConnected = true;
-    _subscribeToTopics();
-  }
-
-  void _onSubscribed(String topic) {
-    print('Subscribed to: $topic');
-  }
-
-  Future<void> _reconnect() async {
-    while (!_isConnected) {
-      try {
-        await client.connect();
-        _isConnected = true;
-        print('MQTT Reconnected');
-        _subscribeToTopics();
-      } catch (e) {
-        print('Reconnection failed: $e');
-        await Future.delayed(const Duration(seconds: 5));
-      }
-    }
-  }
-
-  void togglePump(bool turnOn) {
+  Future<void> togglePump(bool turnOn) async {
     if (!_isConnected) {
-      print('MQTT not connected. Attempting to reconnect...');
-      _reconnect();
+      print('MQTT not connected, cannot toggle pump');
+      statusMessage.value = 'Error: Not connected to MQTT';
       return;
     }
 
@@ -134,11 +165,30 @@ class MQTTService {
       print('Pump command sent successfully');
     } catch (e) {
       print('Error sending pump command: $e');
+      statusMessage.value = 'Error: Failed to control pump';
     }
+  }
+
+  void _onConnected() {
+    print('Connected to MQTT broker');
+    _isConnected = true;
+    statusMessage.value = 'Connected to MQTT';
+  }
+
+  void _onDisconnected() {
+    print('Disconnected from MQTT broker');
+    _isConnected = false;
+    deviceOnline.value = false;
+    statusMessage.value = 'Disconnected from MQTT';
+  }
+
+  void _onSubscribed(String topic) {
+    print('Subscribed to topic: $topic');
   }
 
   void dispose() {
     if (client.connectionStatus?.state == MqttConnectionState.connected) {
+      print('Disconnecting from MQTT broker');
       client.disconnect();
     }
   }
